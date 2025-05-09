@@ -1,0 +1,28 @@
+{
+  "name": "docker-sqlcipher-service",
+  "version": "1.0.0",
+  "description": "A service running in a Docker container that utilizes an SQLCipher database.",
+  "main": "dist/app.js",
+  "scripts": {
+    "start": "node dist/server.js",
+    "build": "tsc",
+    "dev": "ts-node src/server.ts",
+    "docker:build": "docker build -t docker-sqlcipher-service .",
+    "docker:run": "docker run -p 3000:3000 docker-sqlcipher-service"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "sqlite3": "npm:@journeyapps/sqlcipher@^5.0.0",
+    "sqlite": "^4.0.23",
+    "body-parser": "^1.19.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.5",
+    "@types/express": "^4.17.13",
+    "@types/node": "^18.11.18",
+    "@types/sqlite3": "^3.1.8"
+  },
+  "author": "Your Name",
+  "license": "MIT"
+}
