@@ -21,7 +21,7 @@ API_BASE_URL = f"https://{args.ip}/records"
 INITIAL_RECORDS_TO_LOAD = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
-INITIAL_WRITE_CONCURRENCY = 100  # Lower concurrency for initial writes
+INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
 DOCKER_CONTAINER_NAME = "your_container_name"  # Set this to your running container's name
 
 # --- Data Generation ---
