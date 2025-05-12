@@ -6,13 +6,13 @@ import docker
 
 def get_sched_latency_ns():
     """
-    Read the CFS scheduling latency (nanoseconds) from procfs.
-    Falls back to 100 ms if unavailable.
+    Try to read the CFS bandwidth slice (us) as a proxy for scheduling quantum.
     """
-    path = "/proc/sys/kernel/sched_latency_ns"
+    path = "/proc/sys/kernel/sched_cfs_bandwidth_slice_us"
     try:
         with open(path, "r") as f:
-            return int(f.read().strip())
+            # Convert microseconds to nanoseconds
+            return int(f.read().strip()) * 1000
     except Exception as e:
         print(f"Warning: could not read {path}: {e}")
         return None

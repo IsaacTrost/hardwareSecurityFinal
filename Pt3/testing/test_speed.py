@@ -8,13 +8,20 @@ import json
 import subprocess
 import threading
 from collections import defaultdict
+import argparse
 
 # --- Configuration ---
-API_BASE_URL = "http://localhost:3000/records" # Change if your service runs elsewhere
-INITIAL_RECORDS_TO_LOAD = 10000
+parser = argparse.ArgumentParser(description="Test speed script")
+parser.add_argument("--ip", default="localhost", help="API server IP address (default: localhost)")
+parser.add_argument("--port", default="3000", help="API server port (default: 3000)")
+args, _ = parser.parse_known_args()
+
+API_BASE_URL = f"http://{args.ip}:{args.port}/records"
+INITIAL_RECORDS_TO_LOAD = 1000
 MIXED_OPERATIONS_COUNT = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
-MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
+MAX_CONCURRENT_REQUESTS = 100 # Adjust based on your server's capacity and client machine
+INITIAL_WRITE_CONCURRENCY = 10  # Lower concurrency for initial writes
 DOCKER_CONTAINER_NAME = "your_container_name"  # Set this to your running container's name
 
 # --- Data Generation ---
@@ -95,7 +102,9 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
 async def run_test_scenario():
     latencies = []
     created_user_ids = []
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+    # Use lower concurrency for initial writes
+    initial_write_semaphore = asyncio.Semaphore(INITIAL_WRITE_CONCURRENCY)
+    mixed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
     async with aiohttp.ClientSession() as session:
         # 1. Initial Data Loading
@@ -103,10 +112,9 @@ async def run_test_scenario():
         initial_load_tasks = []
         for i in range(INITIAL_RECORDS_TO_LOAD):
             record_data = generate_record_data()
-            # Use semaphore to limit concurrency
-            await semaphore.acquire()
+            await initial_write_semaphore.acquire()
             task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "initial_write"))
-            task.add_done_callback(lambda t: semaphore.release())
+            task.add_done_callback(lambda t: initial_write_semaphore.release())
             initial_load_tasks.append(task)
             if (i + 1) % 100 == 0:
                 print(f"  Scheduled {i+1}/{INITIAL_RECORDS_TO_LOAD} initial records...")
@@ -128,7 +136,7 @@ async def run_test_scenario():
         print(f"\n--- Starting Mixed Workload: {MIXED_OPERATIONS_COUNT} operations ({WRITE_PERCENTAGE*100}% writes) ---")
         mixed_workload_tasks = []
         for i in range(MIXED_OPERATIONS_COUNT):
-            await semaphore.acquire()
+            await mixed_semaphore.acquire()
             if random.random() < WRITE_PERCENTAGE: # Write operation
                 record_data = generate_record_data()
                 task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "mixed_write"))
@@ -136,11 +144,10 @@ async def run_test_scenario():
                 random_user_id = random.choice(created_user_ids)
                 task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
             
-            task.add_done_callback(lambda t: semaphore.release())
+            task.add_done_callback(lambda t: mixed_semaphore.release())
             mixed_workload_tasks.append(task)
             if (i + 1) % (MIXED_OPERATIONS_COUNT // 10 if MIXED_OPERATIONS_COUNT >=10 else 1) == 0:
                  print(f"  Scheduled {i+1}/{MIXED_OPERATIONS_COUNT} mixed operations...")
-
 
         mixed_results = await asyncio.gather(*mixed_workload_tasks)
         latencies.extend(mixed_results)
@@ -213,7 +220,6 @@ def main():
     end = time.time()
     # Stop stats monitoring
     stop_event.set()
-    stats_thread.join()
     print(f"Run duration: {end-start:.2f} seconds")
     calculate_statistics(latencies)
     print("\nSampled container stats (timestamp, CPU%, Mem):")

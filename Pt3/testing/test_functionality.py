@@ -2,7 +2,7 @@ import requests
 import uuid
 import time
 
-API_BASE_URL = "http://localhost:3000/records"
+API_BASE_URL = "http://34.60.88.79:3000/records"
 
 # Generate a random record
 user_id = f"test_{uuid.uuid4().hex[:8]}"
