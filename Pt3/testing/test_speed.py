@@ -5,14 +5,17 @@ import time
 import uuid
 import os
 import json
+import subprocess
+import threading
 from collections import defaultdict
 
 # --- Configuration ---
 API_BASE_URL = "http://localhost:3000/records" # Change if your service runs elsewhere
-INITIAL_RECORDS_TO_LOAD = 1000
+INITIAL_RECORDS_TO_LOAD = 10000
 MIXED_OPERATIONS_COUNT = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
-MAX_CONCURRENT_REQUESTS = 50 # Adjust based on your server's capacity and client machine
+MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
+DOCKER_CONTAINER_NAME = "your_container_name"  # Set this to your running container's name
 
 # --- Data Generation ---
 def generate_random_string(length=10):
@@ -194,19 +197,29 @@ def calculate_statistics(latencies_data):
         else:
             print("  No latency data recorded (all requests might have failed before sending).")
 
-if __name__ == "__main__":
-    start_overall_time = time.time()
-    
+
+def main():
+    print(f"\n=== Test Run ===")
+    # Start container stats monitoring
+    stats_list = []
+    stop_event = threading.Event()
+    # Attestation latency: start timer before container start, stop after first 201 POST
+    attestation_start = time.time()
+    # (If you want to measure from docker run, you would launch the container here)
+    # Run test
+    start = time.time()
     loop = asyncio.get_event_loop()
-    all_latencies = loop.run_until_complete(run_test_scenario())
-    
-    end_overall_time = time.time()
-    total_duration_seconds = end_overall_time - start_overall_time
-    
-    calculate_statistics(all_latencies)
-    
-    print(f"\nTotal test duration: {total_duration_seconds:.2f} seconds")
-    total_requests = len(all_latencies)
-    if total_duration_seconds > 0:
-        rps = total_requests / total_duration_seconds
-        print(f"Overall RPS (Requests Per Second): {rps:.2f}")
+    latencies = loop.run_until_complete(run_test_scenario())
+    end = time.time()
+    # Stop stats monitoring
+    stop_event.set()
+    stats_thread.join()
+    print(f"Run duration: {end-start:.2f} seconds")
+    calculate_statistics(latencies)
+    print("\nSampled container stats (timestamp, CPU%, Mem):")
+    for ts, stat in stats_list[:5]:
+        print(f"{ts}: {stat}")
+    print("...")
+
+if __name__ == "__main__":
+    main()
