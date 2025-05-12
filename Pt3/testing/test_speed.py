@@ -95,7 +95,8 @@ async def run_test_scenario():
     initial_write_semaphore = asyncio.Semaphore(INITIAL_WRITE_CONCURRENCY)
     mixed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         # 1. Initial Data Loading
         print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records ---")
         initial_load_tasks = []
@@ -106,8 +107,7 @@ async def run_test_scenario():
             task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "initial_write"))
             task.add_done_callback(lambda t: initial_write_semaphore.release())
             initial_load_tasks.append(task)
-            if (i + 1) % 100 == 0:
-                print(f"  Scheduled {i+1}/{INITIAL_RECORDS_TO_LOAD} initial records...")
+            print(f"  Scheduled {i+1}/{INITIAL_RECORDS_TO_LOAD} initial records...")
         initial_results = await asyncio.gather(*initial_load_tasks)
         initial_end = time.time()
         initial_duration = initial_end - initial_start
