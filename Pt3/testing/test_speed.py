@@ -14,14 +14,14 @@ import argparse
 parser = argparse.ArgumentParser(description="Test speed script")
 parser.add_argument("--ip", default="localhost", help="API server IP address (default: localhost)")
 parser.add_argument("--port", default="3000", help="API server port (default: 3000)")
+parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
 args, _ = parser.parse_known_args()
 
-API_BASE_URL = f"http://{args.ip}:{args.port}/records"
-INITIAL_RECORDS_TO_LOAD = 1000
-MIXED_OPERATIONS_COUNT = 10000
+API_BASE_URL = f"https://{args.ip}/records"
+INITIAL_RECORDS_TO_LOAD = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
-MAX_CONCURRENT_REQUESTS = 100 # Adjust based on your server's capacity and client machine
-INITIAL_WRITE_CONCURRENCY = 10  # Lower concurrency for initial writes
+MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
+INITIAL_WRITE_CONCURRENCY = 100  # Lower concurrency for initial writes
 DOCKER_CONTAINER_NAME = "your_container_name"  # Set this to your running container's name
 
 # --- Data Generation ---
@@ -29,27 +29,19 @@ def generate_random_string(length=10):
     return ''.join(random.choice('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789') for _ in range(length))
 
 def generate_record_data(user_id=None):
-    """Generates random data for a record based on the RecordEntry schema."""
     if user_id is None:
-        user_id = uuid.uuid4().hex  # Corresponds to user_id: string
-    
-    # Generate a random length for notes, hex encode to make it a string
-    # This simulates some variability in BLOB size and sends a string,
-    # which is compatible with the 'notes?: Buffer | string' schema field.
-    notes_length_bytes = random.randint(25, 128) 
-    notes_content = os.urandom(notes_length_bytes).hex() # Corresponds to notes: string
-
+        user_id = uuid.uuid4().hex
+    notes_length_bytes = random.randint(25, 128)
+    notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
-        "timestamp": int(time.time()) - random.randint(0, 86400 * 30), # Corresponds to timestamp: number
-        "heart_rate": random.randint(50, 120), # Corresponds to heart_rate: number
-        "blood_pressure": f"{random.randint(90, 140)}/{random.randint(60, 90)}", # Corresponds to blood_pressure: string
-        "notes": notes_content 
+        "timestamp": int(time.time()) - random.randint(0, 86400 * 30),
+        "heart_rate": random.randint(50, 120),
+        "blood_pressure": f"{random.randint(90, 140)}/{random.randint(60, 90)}",
+        "notes": notes_content
     }
 
-# --- HTTP Request Functions ---
 async def make_request(session, method, url, data=None, operation_type="unknown"):
-    """Makes an HTTP request and measures latency."""
     start_time = time.perf_counter()
     try:
         async with session.request(method, url, json=data) as response:
@@ -60,10 +52,9 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
                 if response.content_type == 'application/json':
                     response_body = await response.json()
             except json.JSONDecodeError:
-                pass # Ignore if not JSON or empty
-            except Exception: # Catch any other parsing errors
                 pass
-
+            except Exception:
+                pass
             return {
                 "type": operation_type,
                 "status": response.status,
@@ -84,7 +75,7 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
             "user_id": data.get("user_id") if data else None,
             "error": str(e)
         }
-    except Exception as e: # Catch any other unexpected errors
+    except Exception as e:
         end_time = time.perf_counter()
         latency_ms = (end_time - start_time) * 1000
         print(f"Unexpected error during {operation_type} to {url}: {e}")
@@ -97,12 +88,10 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
             "error": str(e)
         }
 
-
 # --- Main Test Scenario ---
 async def run_test_scenario():
     latencies = []
     created_user_ids = []
-    # Use lower concurrency for initial writes
     initial_write_semaphore = asyncio.Semaphore(INITIAL_WRITE_CONCURRENCY)
     mixed_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
@@ -110,6 +99,7 @@ async def run_test_scenario():
         # 1. Initial Data Loading
         print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records ---")
         initial_load_tasks = []
+        initial_start = time.time()
         for i in range(INITIAL_RECORDS_TO_LOAD):
             record_data = generate_record_data()
             await initial_write_semaphore.acquire()
@@ -118,47 +108,58 @@ async def run_test_scenario():
             initial_load_tasks.append(task)
             if (i + 1) % 100 == 0:
                 print(f"  Scheduled {i+1}/{INITIAL_RECORDS_TO_LOAD} initial records...")
-        
         initial_results = await asyncio.gather(*initial_load_tasks)
+        initial_end = time.time()
+        initial_duration = initial_end - initial_start
         for res in initial_results:
-            print("res", res)
             latencies.append(res)
             if res["status"] == 201 and res["user_id"]:
                 created_user_ids.append(res["user_id"])
-        
         print(f"--- Initial Data Load Complete. {len(created_user_ids)} records successfully created. ---")
+        print(f"Initial write throughput: {len(initial_results)/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
 
         if not created_user_ids:
             print("No records were created in the initial load. Aborting mixed workload.")
-            return latencies
+            return latencies, len(initial_results), initial_duration, 0, 0
 
-        # 2. Mixed Workload
-        print(f"\n--- Starting Mixed Workload: {MIXED_OPERATIONS_COUNT} operations ({WRITE_PERCENTAGE*100}% writes) ---")
+        # 2. Mixed Workload for a fixed duration
+        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds ({WRITE_PERCENTAGE*100}% writes) ---")
         mixed_workload_tasks = []
-        for i in range(MIXED_OPERATIONS_COUNT):
-            await mixed_semaphore.acquire()
-            if random.random() < WRITE_PERCENTAGE: # Write operation
-                record_data = generate_record_data()
-                task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "mixed_write"))
-            else: # Read operation
-                random_user_id = random.choice(created_user_ids)
-                task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
-            
-            task.add_done_callback(lambda t: mixed_semaphore.release())
-            mixed_workload_tasks.append(task)
-            if (i + 1) % (MIXED_OPERATIONS_COUNT // 10 if MIXED_OPERATIONS_COUNT >=10 else 1) == 0:
-                 print(f"  Scheduled {i+1}/{MIXED_OPERATIONS_COUNT} mixed operations...")
+        start_time = time.time()
+        op_count = 0
 
-        mixed_results = await asyncio.gather(*mixed_workload_tasks)
-        latencies.extend(mixed_results)
-        print("--- Mixed Workload Complete ---")
+        async def mixed_worker():
+            nonlocal op_count
+            while time.time() - start_time < args.duration:
+                await mixed_semaphore.acquire()
+                if random.random() < WRITE_PERCENTAGE:
+                    record_data = generate_record_data()
+                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "mixed_write"))
+                else:
+                    random_user_id = random.choice(created_user_ids)
+                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                task.add_done_callback(lambda t: mixed_semaphore.release())
+                mixed_workload_tasks.append(task)
+                op_count += 1
 
-    return latencies
+        # Launch workers up to MAX_CONCURRENT_REQUESTS
+        workers = [asyncio.create_task(mixed_worker()) for _ in range(MAX_CONCURRENT_REQUESTS)]
+        await asyncio.gather(*workers)
+        await asyncio.gather(*mixed_workload_tasks)
+        mixed_end = time.time()
+        mixed_duration = mixed_end - start_time
+        print(f"--- Mixed Workload Complete ({op_count} operations in {mixed_duration:.2f} seconds) ---")
+        print(f"Mixed workload throughput: {op_count/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
+
+        latencies.extend([t.result() for t in mixed_workload_tasks if t.done() and t.exception() is None])
+
+    total_ops = len(initial_results) + op_count
+    total_duration = initial_duration + mixed_duration
+    return latencies, len(initial_results), initial_duration, op_count, mixed_duration, total_ops, total_duration
 
 # --- Statistics Calculation ---
 def calculate_statistics(latencies_data):
     stats = defaultdict(lambda: {"count": 0, "total_latency": 0, "latencies": [], "errors": 0, "success": 0})
-    
     for record in latencies_data:
         op_type = record["type"]
         stats[op_type]["count"] += 1
@@ -168,11 +169,10 @@ def calculate_statistics(latencies_data):
             stats[op_type]["success"] += 1
         else:
             stats[op_type]["errors"] += 1
-            if record["status"] == 409: # Specific check for conflicts (e.g. duplicate user_id on POST)
-                 if "conflicts" not in stats[op_type]:
+            if record["status"] == 409:
+                if "conflicts" not in stats[op_type]:
                     stats[op_type]["conflicts"] = 0
-                 stats[op_type]["conflicts"] +=1
-
+                stats[op_type]["conflicts"] += 1
 
     print("\n--- Test Results ---")
     for op_type, data in stats.items():
@@ -182,18 +182,15 @@ def calculate_statistics(latencies_data):
         print(f"  Errors:         {data['errors']}")
         if "conflicts" in data:
             print(f"    Conflicts (409): {data['conflicts']}")
-
         if data["latencies"]:
             avg_latency = data["total_latency"] / data["count"]
             min_latency = min(data["latencies"])
             max_latency = max(data["latencies"])
-            
             sorted_latencies = sorted(data["latencies"])
             p50_latency = sorted_latencies[int(len(sorted_latencies) * 0.5)]
             p90_latency = sorted_latencies[int(len(sorted_latencies) * 0.9)]
             p95_latency = sorted_latencies[int(len(sorted_latencies) * 0.95)]
             p99_latency = sorted_latencies[int(len(sorted_latencies) * 0.99)]
-
             print(f"  Avg Latency:    {avg_latency:.2f} ms")
             print(f"  Min Latency:    {min_latency:.2f} ms")
             print(f"  Max Latency:    {max_latency:.2f} ms")
@@ -204,24 +201,21 @@ def calculate_statistics(latencies_data):
         else:
             print("  No latency data recorded (all requests might have failed before sending).")
 
-
 def main():
     print(f"\n=== Test Run ===")
-    # Start container stats monitoring
     stats_list = []
     stop_event = threading.Event()
-    # Attestation latency: start timer before container start, stop after first 201 POST
     attestation_start = time.time()
-    # (If you want to measure from docker run, you would launch the container here)
-    # Run test
     start = time.time()
     loop = asyncio.get_event_loop()
-    latencies = loop.run_until_complete(run_test_scenario())
+    latencies, initial_ops, initial_duration, mixed_ops, mixed_duration, total_ops, total_duration = loop.run_until_complete(run_test_scenario())
     end = time.time()
-    # Stop stats monitoring
     stop_event.set()
     print(f"Run duration: {end-start:.2f} seconds")
     calculate_statistics(latencies)
+    print(f"\nInitial write throughput: {initial_ops/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
+    print(f"Mixed workload throughput: {mixed_ops/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
+    print(f"Overall throughput: {total_ops/total_duration:.2f} ops/sec over {total_duration:.2f} seconds")
     print("\nSampled container stats (timestamp, CPU%, Mem):")
     for ts, stat in stats_list[:5]:
         print(f"{ts}: {stat}")
