@@ -31,7 +31,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = random.randint(250, 1280)
+    notes_length_bytes = random.randint(16, 512)
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
@@ -148,7 +148,7 @@ async def run_test_scenario():
         print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (batching 100 at a time) ---")
         initial_load_tasks = []
         initial_start = time.time()
-        BATCH_SIZE = 100
+        BATCH_SIZE = 10
 
         # Generate incrementing user IDs
         all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
