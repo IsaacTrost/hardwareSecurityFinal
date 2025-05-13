@@ -19,7 +19,7 @@ parser.add_argument("--initial-load", action="store_true", help="If set, perform
 args, _ = parser.parse_known_args()
 
 API_BASE_URL = f"https://{args.ip}/records"
-INITIAL_RECORDS_TO_LOAD = 10000
+INITIAL_RECORDS_TO_LOAD = 100000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
 INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
@@ -31,7 +31,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = 512
+    notes_length_bytes = 32
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
@@ -202,17 +202,17 @@ async def run_test_scenario():
         async def mixed_worker():
             nonlocal op_count
             while time.time() - start_time < args.duration:
-                await mixed_semaphore.acquire()
-                if random.random() < .9:  # 90% chance to perform a read
-                    random_user_id = random.choice(created_user_ids)
-                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
-                else:  # 10% chance to perform a write
-                    random_user_id = random.choice(created_user_ids)
-                    record = generate_record_data(user_id=random_user_id)
-                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
-                task.add_done_callback(lambda t: mixed_semaphore.release())
-                mixed_workload_tasks.append(task)
-                op_count += 1
+                with mixed_semaphore:
+                    if random.random() < .9:  # 90% chance to perform a read
+                        random_user_id = random.choice(created_user_ids)
+                        task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                    else:  # 10% chance to perform a write
+                        random_user_id = random.choice(created_user_ids)
+                        record = generate_record_data(user_id=random_user_id)
+                        task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
+                    task.add_done_callback(lambda t: mixed_semaphore.release())
+                    mixed_workload_tasks.append(task)
+                    op_count += 1
 
         workers = [asyncio.create_task(mixed_worker()) for _ in range(MAX_CONCURRENT_REQUESTS)]
         await asyncio.gather(*workers)
