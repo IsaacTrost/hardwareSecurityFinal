@@ -17,8 +17,8 @@ parser.add_argument("--port", default="3000", help="API server port (default: 30
 parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
 args, _ = parser.parse_known_args()
 
-API_BASE_URL = f"https://{args.ip}/records"
-INITIAL_RECORDS_TO_LOAD = 10000
+API_BASE_URL = f"http://{args.ip}:3000/records"
+INITIAL_RECORDS_TO_LOAD = 50000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
 INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
@@ -31,7 +31,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = random.randint(25, 128)
+    notes_length_bytes = random.randint(250, 1280)
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
@@ -88,6 +88,53 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
             "error": str(e)
         }
 
+async def make_request_batch(session, url, data_list, operation_type="batch_initial_write"):
+    start_time = time.perf_counter()
+    try:
+        async with session.post(url, json=data_list) as response:
+            end_time = time.perf_counter()
+            latency_ms = (end_time - start_time) * 1000
+            response_body = {}
+            try:
+                if response.content_type == 'application/json':
+                    response_body = await response.json()
+            except json.JSONDecodeError:
+                pass
+            except Exception:
+                pass
+            return {
+                "type": operation_type,
+                "status": response.status,
+                "latency_ms": latency_ms,
+                "url": str(response.url),
+                "batch_size": len(data_list),
+                "response_body": response_body
+            }
+    except aiohttp.ClientError as e:
+        end_time = time.perf_counter()
+        latency_ms = (end_time - start_time) * 1000
+        print(f"ClientError during {operation_type} to {url}: {e}")
+        return {
+            "type": operation_type,
+            "status": "ClientError",
+            "latency_ms": latency_ms,
+            "url": url,
+            "batch_size": len(data_list),
+            "error": str(e)
+        }
+    except Exception as e:
+        end_time = time.perf_counter()
+        latency_ms = (end_time - start_time) * 1000
+        print(f"Unexpected error during {operation_type} to {url}: {e}")
+        return {
+            "type": operation_type,
+            "status": "Exception",
+            "latency_ms": latency_ms,
+            "url": url,
+            "batch_size": len(data_list),
+            "error": str(e)
+        }
+
 # --- Main Test Scenario ---
 async def run_test_scenario():
     latencies = []
@@ -97,30 +144,39 @@ async def run_test_scenario():
 
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        # 1. Initial Data Loading
-        print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records ---")
+        # 1. Initial Data Loading (batch 100 at a time)
+        print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (batching 100 at a time) ---")
         initial_load_tasks = []
         initial_start = time.time()
-        for i in range(INITIAL_RECORDS_TO_LOAD):
-            record_data = generate_record_data()
-            await initial_write_semaphore.acquire()
-            task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "initial_write"))
-            task.add_done_callback(lambda t: initial_write_semaphore.release())
+        BATCH_SIZE = 100
+        batches = [
+            [generate_record_data() for _ in range(BATCH_SIZE)]
+            for _ in range(INITIAL_RECORDS_TO_LOAD // BATCH_SIZE)
+        ]
+        # Handle any remainder
+        remainder = INITIAL_RECORDS_TO_LOAD % BATCH_SIZE
+        if remainder:
+            batches.append([generate_record_data() for _ in range(remainder)])
+
+        for i, batch in enumerate(batches):
+            task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
             initial_load_tasks.append(task)
-            print(f"  Scheduled {i+1}/{INITIAL_RECORDS_TO_LOAD} initial records...")
+            print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
+
         initial_results = await asyncio.gather(*initial_load_tasks)
         initial_end = time.time()
         initial_duration = initial_end - initial_start
         for res in initial_results:
             latencies.append(res)
-            if res["status"] == 201 and res["user_id"]:
-                created_user_ids.append(res["user_id"])
-        print(f"--- Initial Data Load Complete. {len(created_user_ids)} records successfully created. ---")
-        print(f"Initial write throughput: {len(initial_results)/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
+            # Optionally, extract created user_ids from response_body if your API returns them
 
-        if not created_user_ids:
+        total_created = sum(res.get("batch_size", 0) for res in initial_results if res["status"] == 201)
+        print(f"--- Initial Data Load Complete. {total_created} records successfully created. ---")
+        print(f"Initial write throughput: {total_created/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
+
+        if total_created == 0:
             print("No records were created in the initial load. Aborting mixed workload.")
-            return latencies, len(initial_results), initial_duration, 0, 0
+            return latencies, total_created, initial_duration, 0, 0
 
         # 2. Mixed Workload for a fixed duration
         print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds ({WRITE_PERCENTAGE*100}% writes) ---")

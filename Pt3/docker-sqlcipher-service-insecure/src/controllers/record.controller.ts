@@ -64,4 +64,28 @@ export class RecordController {
             res.status(500).json({ message: 'Error retrieving record', error: err.message });
         }
     }
+
+    async insertRecordsBatch(req: Request, res: Response) {
+        const records = req.body as RecordEntry[];
+        if (!Array.isArray(records) || records.length === 0) {
+            return res.status(400).json({ message: 'Request body must be a non-empty array of records.' });
+        }
+        const db = this.db;
+        try {
+            await db.run('BEGIN TRANSACTION');
+            for (const record of records) {
+                const { user_id, timestamp, heart_rate, blood_pressure, notes } = record;
+                const notesBuffer = notes ? (typeof notes === 'string' ? Buffer.from(notes, 'utf-8') : notes) : null;
+                await db.run(
+                    'INSERT INTO records (user_id, timestamp, heart_rate, blood_pressure, notes) VALUES (?, ?, ?, ?, ?)',
+                    user_id, timestamp, heart_rate, blood_pressure, notesBuffer
+                );
+            }
+            await db.run('COMMIT');
+            res.status(201).json({ message: 'Batch insert successful', count: records.length });
+        } catch (error) {
+            await db.run('ROLLBACK');
+            res.status(500).json({ message: 'Batch insert failed', error: (error as Error).message });
+        }
+    }
 }

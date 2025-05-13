@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { open, Database } from 'sqlite';
 
 const DB_FILE = process.env.DB_FILE || 'secure.db';
-const DB_KEY = process.env.DB_KEY || 'your-secret-key'; // IMPORTANT: Use a strong, unique key and manage it securely
+const DB_KEY = process.env.DB_KEY; // IMPORTANT: Use a strong, unique key and manage it securely
 
 let db: Database;
 
