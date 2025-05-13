@@ -30,7 +30,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = random.randint(16, 128)
+    notes_length_bytes = random.randint(512, 1024)
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
@@ -187,7 +187,7 @@ async def run_test_scenario():
             return latencies, total_created, initial_duration, 0, 0
 
         # 2. Mixed Workload for a fixed duration (100% reads)
-        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (100% reads) ---")
+        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (90% reads) ---")
         mixed_workload_tasks = []
         start_time = time.time()
         op_count = 0
@@ -196,8 +196,13 @@ async def run_test_scenario():
             nonlocal op_count
             while time.time() - start_time < args.duration:
                 await mixed_semaphore.acquire()
-                random_user_id = random.choice(created_user_ids)
-                task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                if random.random() < 0.9:  # 90% chance to perform a read
+                    random_user_id = random.choice(created_user_ids)
+                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                else:  # 10% chance to perform a write
+                    random_user_id = random.choice(created_user_ids)
+                    record = generate_record_data(user_id=random_user_id)
+                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
                 task.add_done_callback(lambda t: mixed_semaphore.release())
                 mixed_workload_tasks.append(task)
                 op_count += 1
