@@ -164,8 +164,6 @@ async def run_test_scenario():
             async with initial_write_semaphore:
                 record = generate_record_data(user_id=user_id)
                 result = await make_request(session, "POST", API_BASE_URL, data=record, operation_type="initial_write")
-                if user_id % 1000 == 0:
-                    print(f"  Created record for {user_id}: {result['status']}")
                 return result
 
         for user_id in all_user_ids:
