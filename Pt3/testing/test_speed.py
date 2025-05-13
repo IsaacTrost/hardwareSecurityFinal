@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser(description="Test speed script")
 parser.add_argument("--ip", default="localhost", help="API server IP address (default: localhost)")
 parser.add_argument("--port", default="3000", help="API server port (default: 3000)")
 parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
+parser.add_argument("--initial-load", action="store_true", help="If set, perform initial record creation (writes)")
 args, _ = parser.parse_known_args()
 
 API_BASE_URL = f"https://{args.ip}/records"
@@ -152,39 +153,45 @@ async def run_test_scenario():
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
         # 1. Initial Data Loading (single writes)
-        print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (single writes, concurrency {INITIAL_WRITE_CONCURRENCY}) ---")
-        initial_load_tasks = []
-        initial_start = time.time()
+        if args.initial_load:
+            print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (single writes, concurrency {INITIAL_WRITE_CONCURRENCY}) ---")
+            initial_load_tasks = []
+            initial_start = time.time()
 
-        # Generate incrementing user IDs
-        all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
-        created_user_ids = all_user_ids.copy()  # Save for mixed workload
+            # Generate incrementing user IDs
+            all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
+            created_user_ids = all_user_ids.copy()  # Save for mixed workload
 
-        async def single_write(user_id):
-            async with initial_write_semaphore:
-                record = generate_record_data(user_id=user_id)
-                result = await make_request(session, "POST", API_BASE_URL, data=record, operation_type="initial_write")
-                return result
+            async def single_write(user_id):
+                async with initial_write_semaphore:
+                    record = generate_record_data(user_id=user_id)
+                    result = await make_request(session, "POST", API_BASE_URL, data=record, operation_type="initial_write")
+                    return result
 
-        for user_id in all_user_ids:
-            task = asyncio.ensure_future(single_write(user_id))
-            initial_load_tasks.append(task)
-            if len(initial_load_tasks) % 1000 == 0:
-                print(f"  Scheduled {len(initial_load_tasks)}/{INITIAL_RECORDS_TO_LOAD} records")
+            for user_id in all_user_ids:
+                task = asyncio.ensure_future(single_write(user_id))
+                initial_load_tasks.append(task)
+                if len(initial_load_tasks) % 1000 == 0:
+                    print(f"  Scheduled {len(initial_load_tasks)}/{INITIAL_RECORDS_TO_LOAD} records")
 
-        initial_results = await asyncio.gather(*initial_load_tasks)
-        initial_end = time.time()
-        initial_duration = initial_end - initial_start
-        for res in initial_results:
-            latencies.append(res)
+            initial_results = await asyncio.gather(*initial_load_tasks)
+            initial_end = time.time()
+            initial_duration = initial_end - initial_start
+            for res in initial_results:
+                latencies.append(res)
 
-        total_created = sum(1 for res in initial_results if res["status"] == 201)
-        print(f"--- Initial Data Load Complete. {total_created} records successfully created. ---")
-        print(f"Initial write throughput: {total_created/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
+            total_created = sum(1 for res in initial_results if res["status"] == 201)
+            print(f"--- Initial Data Load Complete. {total_created} records successfully created. ---")
+            print(f"Initial write throughput: {total_created/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
 
-        if total_created == 0:
-            print("No records were created in the initial load. Aborting mixed workload.")
-            return latencies, total_created, initial_duration, 0, 0
+            if total_created == 0:
+                print("No records were created in the initial load. Aborting mixed workload.")
+                return latencies, total_created, initial_duration, 0, 0
+        else:
+            # If not doing initial load, try to get user_ids from somewhere else or skip creation
+            print("--- Skipping Initial Data Load (no --initial-load flag) ---")
+            # Optionally, you could load user_ids from a file or another source here
+            created_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
 
         # 2. Mixed Workload for a fixed duration (100% reads)
         print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (90% reads) ---")
@@ -217,9 +224,9 @@ async def run_test_scenario():
 
         latencies.extend([t.result() for t in mixed_workload_tasks if t.done() and t.exception() is None])
 
-    total_ops = len(initial_results) + op_count
-    total_duration = initial_duration + mixed_duration
-    return latencies, len(initial_results), initial_duration, op_count, mixed_duration, total_ops, total_duration
+    total_ops = (total_created if args.initial_load else 0) + op_count
+    total_duration = (initial_duration if args.initial_load else 0) + mixed_duration
+    return latencies, (total_created if args.initial_load else 0), (initial_duration if args.initial_load else 0), op_count, mixed_duration, total_ops, total_duration
 
 # --- Statistics Calculation ---
 def calculate_statistics(latencies_data):
