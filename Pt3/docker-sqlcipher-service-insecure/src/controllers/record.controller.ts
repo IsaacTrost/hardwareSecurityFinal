@@ -20,8 +20,6 @@ export class RecordController {
 
         try {
             // Convert notes to Buffer if it's a string (example for BLOB)
-            // If notes is already a Buffer (e.g., from a file upload parsed appropriately), it will be used as is.
-            // If notes is undefined or null, it will be passed as null to the DB.
             const notesBuffer = notes ? (typeof notes === 'string' ? Buffer.from(notes, 'utf-8') : notes) : null;
 
             await this.db.run(
@@ -35,7 +33,7 @@ export class RecordController {
             res.status(201).json({ message: 'Record inserted successfully', userId: user_id });
         } catch (error) {
             console.error('Error inserting record:', error);
-            const err = error as Error & { code?: string }; // Type assertion for common error properties
+            const err = error as Error & { code?: string };
             if (err.code === 'SQLITE_CONSTRAINT' && err.message.includes('UNIQUE constraint failed: records.user_id')) {
                 return res.status(409).json({ message: 'Conflict: Record with this user_id already exists.' });
             }
@@ -44,7 +42,7 @@ export class RecordController {
     }
 
     async getRecordByUserId(req: Request, res: Response) {
-        const { user_id } = req.params; // Assuming user_id is passed as a URL parameter
+        const { user_id } = req.params;
         try {
             const record: RecordEntry | undefined = await this.db.get(
                 'SELECT user_id, timestamp, heart_rate, blood_pressure, notes FROM records WHERE user_id = ?',
@@ -52,8 +50,6 @@ export class RecordController {
             );
 
             if (record) {
-                // The 'notes' field will be a Buffer if it was stored as a BLOB and is not null.
-                // The client will need to handle this Buffer (e.g., convert to base64 for JSON, or process as binary).
                 res.status(200).json(record);
             } else {
                 res.status(404).json({ message: 'Record not found' });
@@ -71,8 +67,10 @@ export class RecordController {
             return res.status(400).json({ message: 'Request body must be a non-empty array of records.' });
         }
         const db = this.db;
+        let transactionStarted = false;
         try {
             await db.run('BEGIN TRANSACTION');
+            transactionStarted = true;
             for (const record of records) {
                 const { user_id, timestamp, heart_rate, blood_pressure, notes } = record;
                 const notesBuffer = notes ? (typeof notes === 'string' ? Buffer.from(notes, 'utf-8') : notes) : null;
@@ -84,8 +82,18 @@ export class RecordController {
             await db.run('COMMIT');
             res.status(201).json({ message: 'Batch insert successful', count: records.length });
         } catch (error) {
-            await db.run('ROLLBACK');
-            res.status(500).json({ message: 'Batch insert failed', error: (error as Error).message });
+            if (transactionStarted) {
+                try {
+                    await db.run('ROLLBACK');
+                } catch (rollbackError) {
+                    console.error('Error during ROLLBACK:', rollbackError);
+                }
+            }
+            const err = error as Error & { code?: string };
+            if (err.code === 'SQLITE_CONSTRAINT' && err.message.includes('UNIQUE constraint failed: records.user_id')) {
+                return res.status(409).json({ message: 'Conflict: One or more user_ids already exist.' });
+            }
+            res.status(500).json({ message: 'Batch insert failed', error: err.message });
         }
     }
 }
