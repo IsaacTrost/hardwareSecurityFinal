@@ -105,6 +105,10 @@ async def make_request_batch(session, url, data_list, operation_type="batch_init
                 pass
             except Exception:
                 pass
+            # Print error details if not 2xx
+            if not (200 <= response.status < 300):
+                print(f"Error from remote (batch): {response.status} {response.reason} for {url}")
+                print(f"Response body: {response_body}")
             return {
                 "type": operation_type,
                 "status": response.status,
