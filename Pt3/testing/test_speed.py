@@ -22,7 +22,6 @@ INITIAL_RECORDS_TO_LOAD = 50000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
 INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
-DOCKER_CONTAINER_NAME = "your_container_name"  # Set this to your running container's name
 
 # --- Data Generation ---
 def generate_random_string(length=10):
@@ -55,6 +54,10 @@ async def make_request(session, method, url, data=None, operation_type="unknown"
                 pass
             except Exception:
                 pass
+            # Print error details if not 2xx
+            if not (200 <= response.status < 300):
+                print(f"Error from remote: {response.status} {response.reason} for {url}")
+                print(f"Response body: {response_body}")
             return {
                 "type": operation_type,
                 "status": response.status,
@@ -180,7 +183,7 @@ async def run_test_scenario():
             return latencies, total_created, initial_duration, 0, 0
 
         # 2. Mixed Workload for a fixed duration
-        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds ({WRITE_PERCENTAGE*100}% writes) ---")
+        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (100% reads) ---")
         mixed_workload_tasks = []
         start_time = time.time()
         op_count = 0
@@ -189,12 +192,9 @@ async def run_test_scenario():
             nonlocal op_count
             while time.time() - start_time < args.duration:
                 await mixed_semaphore.acquire()
-                if random.random() < WRITE_PERCENTAGE:
-                    record_data = generate_record_data()
-                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, record_data, "mixed_write"))
-                else:
-                    random_user_id = random.choice(created_user_ids)
-                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                # Only do mixed reads
+                random_user_id = random.choice(created_user_ids)
+                task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
                 task.add_done_callback(lambda t: mixed_semaphore.release())
                 mixed_workload_tasks.append(task)
                 op_count += 1

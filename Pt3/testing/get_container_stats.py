@@ -52,7 +52,7 @@ def main():
     p.add_argument("container", help="Container ID or name")
     p.add_argument(
         "--duration", "-d",
-        type=int, default=60,
+        type=int, default=180,
         help="Total sampling duration (sec)"
     )
     p.add_argument(
