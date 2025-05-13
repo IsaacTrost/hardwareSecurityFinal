@@ -36,8 +36,7 @@ RUN echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] htt
 RUN apt-get install -y libtdx-attest libtdx-attest-dev
 
 # Copy and build the TDX quote generation sample
-WORKDIR /opt/intel/tdx-quote-generation-sample
-RUN make
+
 # Stage 2: Production image
 
 FROM ubuntu:24.04
@@ -72,6 +71,12 @@ RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dea
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list && \
     apt-get update && \
     apt-get install -y google-cloud-sdk
+    
+RUN apt-get update && \
+    apt-get install -y wget && \
+    wget https://launchpad.net/ubuntu/+archive/primary/+files/libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb && \
+    dpkg -i libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb && \
+    rm libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb
 # Expose port
 EXPOSE 3000
 COPY start_server.sh ./

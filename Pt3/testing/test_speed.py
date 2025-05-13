@@ -15,9 +15,10 @@ parser = argparse.ArgumentParser(description="Test speed script")
 parser.add_argument("--ip", default="localhost", help="API server IP address (default: localhost)")
 parser.add_argument("--port", default="3000", help="API server port (default: 3000)")
 parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
+parser.add_argument("--initial-load", default=True, action="store_true", help="Perform initial data load")
 args, _ = parser.parse_known_args()
 
-API_BASE_URL = f"http://{args.ip}:3000/records"
+API_BASE_URL = f"https://{args.ip}:3000/records"
 INITIAL_RECORDS_TO_LOAD = 50000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
@@ -149,21 +150,26 @@ async def run_test_scenario():
         initial_load_tasks = []
         initial_start = time.time()
         BATCH_SIZE = 100
-        batches = [
-            [generate_record_data() for _ in range(BATCH_SIZE)]
-            for _ in range(INITIAL_RECORDS_TO_LOAD // BATCH_SIZE)
-        ]
-        # Handle any remainder
-        remainder = INITIAL_RECORDS_TO_LOAD % BATCH_SIZE
-        if remainder:
-            batches.append([generate_record_data() for _ in range(remainder)])
 
-        for i, batch in enumerate(batches):
-            task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
-            initial_load_tasks.append(task)
-            print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
+        # Generate incrementing user IDs
+        all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
+        created_user_ids = all_user_ids.copy()  # Save for mixed workload
 
-        initial_results = await asyncio.gather(*initial_load_tasks)
+        if args.initial_load:
+            batches = [
+            [generate_record_data(user_id=all_user_ids[i * BATCH_SIZE + j]) for j in range(min(BATCH_SIZE, INITIAL_RECORDS_TO_LOAD - i * BATCH_SIZE))]
+            for i in range((INITIAL_RECORDS_TO_LOAD + BATCH_SIZE - 1) // BATCH_SIZE)
+            ]
+
+            for i, batch in enumerate(batches):
+                task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
+                initial_load_tasks.append(task)
+                print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
+
+                initial_results = await asyncio.gather(*initial_load_tasks)
+        else:
+            print("--- Skipping Initial Data Load ---")
+            initial_results = []
         initial_end = time.time()
         initial_duration = initial_end - initial_start
         for res in initial_results:
