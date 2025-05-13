@@ -15,7 +15,6 @@ parser = argparse.ArgumentParser(description="Test speed script")
 parser.add_argument("--ip", default="localhost", help="API server IP address (default: localhost)")
 parser.add_argument("--port", default="3000", help="API server port (default: 3000)")
 parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
-parser.add_argument("--initial-load", default=True, action="store_true", help="Perform initial data load")
 args, _ = parser.parse_known_args()
 
 API_BASE_URL = f"https://{args.ip}:3000/records"
@@ -155,21 +154,17 @@ async def run_test_scenario():
         all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
         created_user_ids = all_user_ids.copy()  # Save for mixed workload
 
-        if args.initial_load:
-            batches = [
+        batches = [
             [generate_record_data(user_id=all_user_ids[i * BATCH_SIZE + j]) for j in range(min(BATCH_SIZE, INITIAL_RECORDS_TO_LOAD - i * BATCH_SIZE))]
             for i in range((INITIAL_RECORDS_TO_LOAD + BATCH_SIZE - 1) // BATCH_SIZE)
-            ]
+        ]
 
-            for i, batch in enumerate(batches):
-                task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
-                initial_load_tasks.append(task)
-                print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
+        for i, batch in enumerate(batches):
+            task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
+            initial_load_tasks.append(task)
+            print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
 
-                initial_results = await asyncio.gather(*initial_load_tasks)
-        else:
-            print("--- Skipping Initial Data Load ---")
-            initial_results = []
+        initial_results = await asyncio.gather(*initial_load_tasks)
         initial_end = time.time()
         initial_duration = initial_end - initial_start
         for res in initial_results:
