@@ -17,7 +17,7 @@ parser.add_argument("--port", default="3000", help="API server port (default: 30
 parser.add_argument("--duration", type=int, default=120, help="Test duration in seconds (default: 120)")
 args, _ = parser.parse_known_args()
 
-API_BASE_URL = f"https://{args.ip}:3000/records"
+API_BASE_URL = f"https://{args.ip}/records"
 INITIAL_RECORDS_TO_LOAD = 50000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
