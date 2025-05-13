@@ -20,7 +20,7 @@ args, _ = parser.parse_known_args()
 API_BASE_URL = f"https://{args.ip}/records"
 INITIAL_RECORDS_TO_LOAD = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
-MAX_CONCURRENT_REQUESTS = 5000 # Adjust based on your server's capacity and client machine
+MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
 INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
 
 # --- Data Generation ---
