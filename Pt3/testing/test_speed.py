@@ -30,7 +30,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = random.randint(512, 1024)
+    notes_length_bytes = random.randint(128, 256)
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
