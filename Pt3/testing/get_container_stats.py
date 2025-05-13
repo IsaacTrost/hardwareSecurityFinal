@@ -89,7 +89,6 @@ def main():
                 f"{stats['mem_usage']},"
                 f"{stats['mem_pct']:.5f}\n"
             )
-            f.flush()
             time.sleep(quantum_s)
 
     print(f"Done! Stats written to {args.output}")

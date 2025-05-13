@@ -151,34 +151,34 @@ async def run_test_scenario():
 
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        # 1. Initial Data Loading (batch 100 at a time)
-        print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (batching 100 at a time) ---")
+        # 1. Initial Data Loading (single writes)
+        print(f"--- Starting Initial Data Load: {INITIAL_RECORDS_TO_LOAD} records (single writes, concurrency {INITIAL_WRITE_CONCURRENCY}) ---")
         initial_load_tasks = []
         initial_start = time.time()
-        BATCH_SIZE = 5
 
         # Generate incrementing user IDs
         all_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
         created_user_ids = all_user_ids.copy()  # Save for mixed workload
 
-        batches = [
-            [generate_record_data(user_id=all_user_ids[i * BATCH_SIZE + j]) for j in range(min(BATCH_SIZE, INITIAL_RECORDS_TO_LOAD - i * BATCH_SIZE))]
-            for i in range((INITIAL_RECORDS_TO_LOAD + BATCH_SIZE - 1) // BATCH_SIZE)
-        ]
+        async def single_write(user_id):
+            async with initial_write_semaphore:
+                record = generate_record_data(user_id=user_id)
+                result = await make_request(session, "POST", API_BASE_URL, data=record, operation_type="initial_write")
+                return result
 
-        for i, batch in enumerate(batches):
-            task = asyncio.ensure_future(make_request_batch(session, API_BASE_URL, batch, "batch_initial_write"))
+        for user_id in all_user_ids:
+            task = asyncio.ensure_future(single_write(user_id))
             initial_load_tasks.append(task)
-            print(f"  Scheduled batch {i+1}/{len(batches)} ({len(batch)} records)")
+            if len(initial_load_tasks) % 1000 == 0:
+                print(f"  Scheduled {len(initial_load_tasks)}/{INITIAL_RECORDS_TO_LOAD} records")
 
         initial_results = await asyncio.gather(*initial_load_tasks)
         initial_end = time.time()
         initial_duration = initial_end - initial_start
         for res in initial_results:
             latencies.append(res)
-            # Optionally, extract created user_ids from response_body if your API returns them
 
-        total_created = sum(res.get("batch_size", 0) for res in initial_results if res["status"] == 201)
+        total_created = sum(1 for res in initial_results if res["status"] == 201)
         print(f"--- Initial Data Load Complete. {total_created} records successfully created. ---")
         print(f"Initial write throughput: {total_created/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
 
@@ -186,7 +186,7 @@ async def run_test_scenario():
             print("No records were created in the initial load. Aborting mixed workload.")
             return latencies, total_created, initial_duration, 0, 0
 
-        # 2. Mixed Workload for a fixed duration
+        # 2. Mixed Workload for a fixed duration (100% reads)
         print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (100% reads) ---")
         mixed_workload_tasks = []
         start_time = time.time()
@@ -196,14 +196,12 @@ async def run_test_scenario():
             nonlocal op_count
             while time.time() - start_time < args.duration:
                 await mixed_semaphore.acquire()
-                # Only do mixed reads
                 random_user_id = random.choice(created_user_ids)
                 task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
                 task.add_done_callback(lambda t: mixed_semaphore.release())
                 mixed_workload_tasks.append(task)
                 op_count += 1
 
-        # Launch workers up to MAX_CONCURRENT_REQUESTS
         workers = [asyncio.create_task(mixed_worker()) for _ in range(MAX_CONCURRENT_REQUESTS)]
         await asyncio.gather(*workers)
         await asyncio.gather(*mixed_workload_tasks)
