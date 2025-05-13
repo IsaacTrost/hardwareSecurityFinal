@@ -22,22 +22,25 @@ export class RecordController {
             // Convert notes to Buffer if it's a string (example for BLOB)
             const notesBuffer = notes ? (typeof notes === 'string' ? Buffer.from(notes, 'utf-8') : notes) : null;
 
-            await this.db.run(
-                'INSERT INTO records (user_id, timestamp, heart_rate, blood_pressure, notes) VALUES (?, ?, ?, ?, ?)',
+            // Try to insert, but if user_id exists, update the record instead
+            const result = await this.db.run(
+                `INSERT INTO records (user_id, timestamp, heart_rate, blood_pressure, notes)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON CONFLICT(user_id) DO UPDATE SET
+                    timestamp=excluded.timestamp,
+                    heart_rate=excluded.heart_rate,
+                    blood_pressure=excluded.blood_pressure,
+                    notes=excluded.notes`,
                 user_id,
                 timestamp,
                 heart_rate,
                 blood_pressure,
-                notesBuffer // Pass the Buffer or null
+                notesBuffer
             );
-            res.status(201).json({ message: 'Record inserted successfully', userId: user_id });
+            res.status(201).json({ message: 'Record inserted or updated successfully', userId: user_id });
         } catch (error) {
-            console.error('Error inserting record:', error);
-            const err = error as Error & { code?: string };
-            if (err.code === 'SQLITE_CONSTRAINT' && err.message.includes('UNIQUE constraint failed: records.user_id')) {
-                return res.status(409).json({ message: 'Conflict: Record with this user_id already exists.' });
-            }
-            res.status(500).json({ message: 'Error inserting record', error: err.message });
+            console.error('Error inserting/updating record:', error);
+            res.status(500).json({ message: 'Error inserting/updating record', error: (error as Error).message });
         }
     }
 
