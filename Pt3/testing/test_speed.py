@@ -18,7 +18,7 @@ parser.add_argument("--duration", type=int, default=120, help="Test duration in 
 args, _ = parser.parse_known_args()
 
 API_BASE_URL = f"https://{args.ip}/records"
-INITIAL_RECORDS_TO_LOAD = 50000
+INITIAL_RECORDS_TO_LOAD = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
 INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
@@ -164,6 +164,8 @@ async def run_test_scenario():
             async with initial_write_semaphore:
                 record = generate_record_data(user_id=user_id)
                 result = await make_request(session, "POST", API_BASE_URL, data=record, operation_type="initial_write")
+                if user_id % 1000 == 0:
+                    print(f"  Created record for {user_id}: {result['status']}")
                 return result
 
         for user_id in all_user_ids:
