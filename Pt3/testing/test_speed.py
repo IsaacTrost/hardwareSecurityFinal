@@ -31,7 +31,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = random.randint(10, 20)
+    notes_length_bytes = 512
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
@@ -203,7 +203,7 @@ async def run_test_scenario():
             nonlocal op_count
             while time.time() - start_time < args.duration:
                 await mixed_semaphore.acquire()
-                if random.random() < 2.0:  # 90% chance to perform a read
+                if random.random() < .9:  # 90% chance to perform a read
                     random_user_id = random.choice(created_user_ids)
                     task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
                 else:  # 10% chance to perform a write

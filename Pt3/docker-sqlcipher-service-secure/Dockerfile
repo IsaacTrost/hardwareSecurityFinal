@@ -66,12 +66,20 @@ RUN echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] htt
 
 # Install TDX libraries
 RUN apt-get install -y libtdx-attest libtdx-attest-dev
-COPY --from=sgx_builder /opt/intel/tdx-quote-generation-sample/test_tdx_attest ./test_tdx_attest
+
+WORKDIR /opt/intel/tdx-quote-generation-sample
+
+
+RUN make
+
+WORKDIR /usr/src/app
+RUN cp /opt/intel/tdx-quote-generation-sample/test_tdx_attest ./test_tdx_attest
+
 RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] http://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list && \
     apt-get update && \
     apt-get install -y google-cloud-sdk
-    
+
 RUN apt-get update && \
     apt-get install -y wget && \
     wget https://launchpad.net/ubuntu/+archive/primary/+files/libssl1.1_1.1.1f-1ubuntu2.22_amd64.deb && \
