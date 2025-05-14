@@ -202,17 +202,17 @@ async def run_test_scenario():
         async def mixed_worker():
             nonlocal op_count
             while time.time() - start_time < args.duration:
-                with mixed_semaphore:
-                    if random.random() < .9:  # 90% chance to perform a read
-                        random_user_id = random.choice(created_user_ids)
-                        task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
-                    else:  # 10% chance to perform a write
-                        random_user_id = random.choice(created_user_ids)
-                        record = generate_record_data(user_id=random_user_id)
-                        task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
-                    task.add_done_callback(lambda t: mixed_semaphore.release())
-                    mixed_workload_tasks.append(task)
-                    op_count += 1
+                await mixed_semaphore.acquire()
+                if random.random() < .9:  # 90% chance to perform a read
+                    random_user_id = random.choice(created_user_ids)
+                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
+                else:  # 10% chance to perform a write
+                    random_user_id = random.choice(created_user_ids)
+                    record = generate_record_data(user_id=random_user_id)
+                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
+                task.add_done_callback(lambda t: mixed_semaphore.release())
+                mixed_workload_tasks.append(task)
+                op_count += 1
 
         workers = [asyncio.create_task(mixed_worker()) for _ in range(MAX_CONCURRENT_REQUESTS)]
         await asyncio.gather(*workers)
