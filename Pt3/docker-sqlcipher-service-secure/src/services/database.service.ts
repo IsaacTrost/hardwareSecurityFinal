@@ -21,6 +21,7 @@ export const initDb = async (): Promise<Database> => {
 
   // Set the encryption key
   await db.run(`PRAGMA key = '${DB_KEY}';`);
+  await db.run('PRAGMA journal_mode = WAL;');
   // Test the key (optional, but good for verification)
   await db.run('PRAGMA cipher_version;');
   console.log('SQLCipher database initialized and key set.');

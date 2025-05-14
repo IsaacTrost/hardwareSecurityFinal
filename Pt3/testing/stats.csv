@@ -14,3 +14,4 @@ timestamp,cpu_pct,mem_usage,mem_pct
 1747021849.390,14.96,86245376,1.06
 1747021851.391,13.51,93749248,1.15
 1747021853.397,12.96,96894976,1.19
+while true; do date +%s%3N; docker stats --no-stream --format "{{.Name}},{{.CPUPerc}},{{.MemUsage}}"; sleep 1; done
