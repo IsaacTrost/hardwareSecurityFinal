@@ -193,35 +193,51 @@ async def run_test_scenario():
             # Optionally, you could load user_ids from a file or another source here
             created_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
 
-        # 2. Mixed Workload for a fixed duration (100% reads)
-        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (90% reads) ---")
-        mixed_workload_tasks = []
+        # 2. Mixed Workload for a fixed duration (1000 max in-flight requests)
+        print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (90% reads, max {MAX_CONCURRENT_REQUESTS} in flight) ---")
+        mixed_workload_tasks = set()
         start_time = time.time()
         op_count = 0
 
-        async def mixed_worker():
+        async def schedule_next():
             nonlocal op_count
-            while time.time() - start_time < args.duration:
-                await mixed_semaphore.acquire()
-                if random.random() < .9:  # 90% chance to perform a read
-                    random_user_id = random.choice(created_user_ids)
-                    task = asyncio.ensure_future(make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read"))
-                else:  # 10% chance to perform a write
-                    random_user_id = random.choice(created_user_ids)
-                    record = generate_record_data(user_id=random_user_id)
-                    task = asyncio.ensure_future(make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write"))
-                task.add_done_callback(lambda t: mixed_semaphore.release())
-                mixed_workload_tasks.append(task)
-                op_count += 1
+            if time.time() - start_time >= args.duration:
+                return
+            if random.random() < 0.9:  # 90% reads
+                random_user_id = random.choice(created_user_ids)
+                coro = make_request(session, "GET", f"{API_BASE_URL}/{random_user_id}", operation_type="mixed_read")
+            else:  # 10% writes
+                random_user_id = random.choice(created_user_ids)
+                record = generate_record_data(user_id=random_user_id)
+                coro = make_request(session, "POST", API_BASE_URL, data=record, operation_type="mixed_write")
+            task = asyncio.create_task(coro)
+            mixed_workload_tasks.add(task)
+            op_count += 1
+            task.add_done_callback(lambda t: mixed_workload_tasks.discard(t))
 
-        workers = [asyncio.create_task(mixed_worker()) for _ in range(MAX_CONCURRENT_REQUESTS)]
-        await asyncio.gather(*workers)
-        await asyncio.gather(*mixed_workload_tasks)
+        # Prime the pool
+        for _ in range(MAX_CONCURRENT_REQUESTS):
+            await schedule_next()
+
+        # Continue scheduling as tasks finish, until time is up
+        while time.time() - start_time < args.duration:
+            if len(mixed_workload_tasks) < MAX_CONCURRENT_REQUESTS:
+                await schedule_next()
+            else:
+                # Wait for any task to finish before scheduling more
+                done, _ = await asyncio.wait(mixed_workload_tasks, return_when=asyncio.FIRST_COMPLETED)
+                # Results are handled by add_done_callback
+
+        # Wait for all in-flight tasks to finish
+        if mixed_workload_tasks:
+            await asyncio.gather(*mixed_workload_tasks)
+
         mixed_end = time.time()
         mixed_duration = mixed_end - start_time
         print(f"--- Mixed Workload Complete ({op_count} operations in {mixed_duration:.2f} seconds) ---")
         print(f"Mixed workload throughput: {op_count/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
 
+        # Collect results
         latencies.extend([t.result() for t in mixed_workload_tasks if t.done() and t.exception() is None])
 
     total_ops = (total_created if args.initial_load else 0) + op_count
