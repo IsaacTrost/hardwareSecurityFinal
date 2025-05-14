@@ -19,8 +19,25 @@ sudo mkdir -p /shared_timing
 sudo chmod 777 /shared_timing
 
 # Start your app container with the shared volume
+echo 'deb [signed-by=/etc/apt/keyrings/intel-sgx-keyring.asc arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu noble main' | sudo tee /etc/apt/sources.list.d/intel-sgx.list
+wget https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+sudo mkdir -p /etc/apt/keyrings
+cat intel-sgx-deb.key | sudo tee /etc/apt/keyrings/intel-sgx-keyring.asc > /dev/null
+
+sudo apt-get update
 sudo docker pull "$DOCKER_IMAGE"
+sudo apt install -y libtdx-attest libtdx-attest-dev
+cd /opt/intel/tdx-quote-generation-sample/
+make
+
 TIME_STARTED=$(date +%s%3N)
+./test_tdx_attest
+
+curl -k -X POST https://35.188.66.105:8799/attestation/sgx/dcap/v1/report \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg quote "$(base64 -w 0 quote.dat)" '{isvQuote: $quote}')" \
+  -o response.json \
+  -w "%{http_code}\n"
 sudo docker run -d --name fithealth -p 3000:3000 -v /shared_timing:/shared_timing "$DOCKER_IMAGE"
 
 # Set up certs (replace with your actual method, e.g., gsutil cp)
