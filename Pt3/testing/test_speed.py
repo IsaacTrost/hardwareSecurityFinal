@@ -245,7 +245,7 @@ async def run_test_scenario():
     return latencies, (total_created if args.initial_load else 0), (initial_duration if args.initial_load else 0), op_count, mixed_duration, total_ops, total_duration
 
 # --- Statistics Calculation ---
-def calculate_statistics(latencies_data):
+def calculate_statistics(latencies_data, mixed_ops=0, mixed_duration=0):
     stats = defaultdict(lambda: {"count": 0, "total_latency": 0, "latencies": [], "errors": 0, "success": 0})
     for record in latencies_data:
         op_type = record["type"]
@@ -288,6 +288,24 @@ def calculate_statistics(latencies_data):
         else:
             print("  No latency data recorded (all requests might have failed before sending).")
 
+    # Print summary for reads and writes
+    for label, op_types in [
+        ("READS", ["mixed_read"]),
+        ("WRITES", ["mixed_write", "initial_write"])
+    ]:
+        latencies = []
+        for op in op_types:
+            latencies.extend(stats[op]["latencies"])
+        if latencies:
+            avg = sum(latencies) / len(latencies)
+            print(f"\n{label} - Avg Latency: {avg:.2f} ms, Min: {min(latencies):.2f} ms, Max: {max(latencies):.2f} ms")
+        else:
+            print(f"\n{label} - No latency data.")
+
+    # Print mixed workload throughput if available
+    if mixed_ops and mixed_duration:
+        print(f"\nMixed workload throughput: {mixed_ops/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
+
 def main():
     print(f"\n=== Test Run ===")
     stats_list = []
@@ -299,7 +317,7 @@ def main():
     end = time.time()
     stop_event.set()
     print(f"Run duration: {end-start:.2f} seconds")
-    calculate_statistics(latencies)
+    calculate_statistics(latencies, mixed_ops, mixed_duration)
     print(f"\nInitial write throughput: {initial_ops/initial_duration:.2f} ops/sec over {initial_duration:.2f} seconds")
     print(f"Mixed workload throughput: {mixed_ops/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
     print(f"Overall throughput: {total_ops/total_duration:.2f} ops/sec over {total_duration:.2f} seconds")
