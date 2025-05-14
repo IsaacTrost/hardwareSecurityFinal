@@ -186,18 +186,26 @@ async def run_test_scenario():
 
             if total_created == 0:
                 print("No records were created in the initial load. Aborting mixed workload.")
-                return latencies, total_created, initial_duration, 0, 0
+                return latencies, total_created, initial_duration, 0, 0, total_created, initial_duration
         else:
             # If not doing initial load, try to get user_ids from somewhere else or skip creation
             print("--- Skipping Initial Data Load (no --initial-load flag) ---")
             # Optionally, you could load user_ids from a file or another source here
             created_user_ids = [f"user_{i+1}" for i in range(INITIAL_RECORDS_TO_LOAD)]
 
-        # 2. Mixed Workload for a fixed duration (1000 max in-flight requests)
+        # 2. Mixed Workload for a fixed duration (100 max in-flight requests)
         print(f"\n--- Starting Mixed Workload: running for {args.duration} seconds (90% reads, max {MAX_CONCURRENT_REQUESTS} in flight) ---")
         mixed_workload_tasks = set()
+        mixed_results = []
         start_time = time.time()
         op_count = 0
+
+        def on_done(task):
+            try:
+                mixed_results.append(task.result())
+            except Exception:
+                pass
+            mixed_workload_tasks.discard(task)
 
         async def schedule_next():
             nonlocal op_count
@@ -213,7 +221,7 @@ async def run_test_scenario():
             task = asyncio.create_task(coro)
             mixed_workload_tasks.add(task)
             op_count += 1
-            task.add_done_callback(lambda t: mixed_workload_tasks.discard(t))
+            task.add_done_callback(on_done)
 
         # Prime the pool
         for _ in range(MAX_CONCURRENT_REQUESTS):
@@ -238,7 +246,7 @@ async def run_test_scenario():
         print(f"Mixed workload throughput: {op_count/mixed_duration:.2f} ops/sec over {mixed_duration:.2f} seconds")
 
         # Collect results
-        latencies.extend([t.result() for t in mixed_workload_tasks if t.done() and t.exception() is None])
+        latencies.extend(mixed_results)
 
     total_ops = (total_created if args.initial_load else 0) + op_count
     total_duration = (initial_duration if args.initial_load else 0) + mixed_duration
