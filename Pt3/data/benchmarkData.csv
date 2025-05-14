@@ -1,0 +1,16 @@
+,Mixed Throughput (ops/s),Reads Only,Writes Only,,,,,
+Trial 1,1486.19,1338.391667,148.2916667,,,,,
+Trial 2,1496.8,1346.766667,148.2916667,,,,,
+Trial 3,1504.43,1354.183333,150.325,,,,,
+Trial 4,1507.22,1356.791667,150.8166667,,,,,
+Trial 5,,,,,,,,
+Average,1498.66,1349.033333,149.43125,,,,,
+,,,,,,,,
+,Read Latency (ms),,,,,Write Latency (ms),,
+,90th Percentile,95th Percentile,99th Percentile,,,90th Percentile,95th Percentile,99th Percentile
+Trial 1,92,104.72,151.85,,Trial 1,101.89,116.27,177.89
+Trial 2,93.06,105.7,153.69,,Trial 2,100.91,114.5,164.1
+Trial 3,92.88,105.51,151.37,,Trial 3,100.48,114.26,174.7
+Trial 4,93,106.59,149.96,,Trial 4,100.72,114.81,164.02
+Trial 5,,,,,Trial 5,,,
+Average,92.735,105.63,151.7175,,Average,101,114.96,170.1775
