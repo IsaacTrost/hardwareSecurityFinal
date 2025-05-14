@@ -19,10 +19,10 @@ parser.add_argument("--initial-load", action="store_true", help="If set, perform
 args, _ = parser.parse_known_args()
 
 API_BASE_URL = f"https://{args.ip}/records"
-INITIAL_RECORDS_TO_LOAD = 1000
+INITIAL_RECORDS_TO_LOAD = 10000
 WRITE_PERCENTAGE = 0.10 # 10% writes
-MAX_CONCURRENT_REQUESTS = 100 # Adjust based on your server's capacity and client machine
-INITIAL_WRITE_CONCURRENCY = 100  # Lower concurrency for initial writes
+MAX_CONCURRENT_REQUESTS = 1000 # Adjust based on your server's capacity and client machine
+INITIAL_WRITE_CONCURRENCY = 1000  # Lower concurrency for initial writes
 
 # --- Data Generation ---
 def generate_random_string(length=10):
@@ -31,7 +31,7 @@ def generate_random_string(length=10):
 def generate_record_data(user_id=None):
     if user_id is None:
         user_id = uuid.uuid4().hex
-    notes_length_bytes = 32
+    notes_length_bytes = 10
     notes_content = os.urandom(notes_length_bytes).hex()
     return {
         "user_id": user_id,
