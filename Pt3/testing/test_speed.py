@@ -18,7 +18,7 @@ parser.add_argument("--duration", type=int, default=120, help="Test duration in 
 parser.add_argument("--initial-load", action="store_true", help="If set, perform initial record creation (writes)")
 args, _ = parser.parse_known_args()
 
-API_BASE_URL = f"https://{args.ip}/records"
+API_BASE_URL = f"http://{args.ip}:3000/records"
 INITIAL_RECORDS_TO_LOAD = 1000
 WRITE_PERCENTAGE = 0.10 # 10% writes
 MAX_CONCURRENT_REQUESTS = 20 # Adjust based on your server's capacity and client machine
